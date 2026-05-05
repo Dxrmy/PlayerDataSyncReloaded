@@ -30,9 +30,19 @@ tasks {
         relocate("org.bstats", "de.craftingstudiopro.playerDataSyncReloaded.bstats")
         mergeServiceFiles()
     }
-    build { dependsOn(shadowJar) }
+
+    val copyJar by registering(Copy::class) {
+        from(shadowJar)
+        into(rootProject.layout.buildDirectory.dir("libs"))
+    }
+
+    build {
+        dependsOn(copyJar)
+    }
+
     runServer { minecraftVersion("26.1.2") }
     processResources {
+        inputs.property("version", project.version)
         val props = mapOf("version" to project.version)
         filesMatching("plugin.yml") { expand(props) }
     }

@@ -2,7 +2,13 @@
 
 All notable changes to PlayerDataSyncReloaded will be documented in this file.
 
-## [26.5.3-Release] - 2026-05-03
+## [26.5.4-Release] - 2026-05-05
+### Fixed
+- **Build Process**: Redirected final shaded JAR output to the root build directory for easier access.
+- **Database Migration**: Added automatic schema migration for SQL storage to fix "Unknown column" errors when upgrading from older versions.
+- **Legacy Fallback**: Implemented automatic fallback to the legacy data format if the new JSON format is missing in SQL storage.
+
+## [26.5.3-Release] - 2026-05-05
 ### Changed
 - **Paper Compatibility**: Updated NMS support for the stable Paper 26.1.2 release.
 - **Dependency Management**: Updated internal version modules to target the latest stable API builds.

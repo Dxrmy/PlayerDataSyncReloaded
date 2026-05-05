@@ -96,8 +96,61 @@ public class SqlStorage implements Storage {
             try (PreparedStatement ps = conn.prepareStatement(createTableSql)) {
                 ps.execute();
             }
+
+            // Check for missing columns (migration from legacy versions)
+            checkAndAddColumn(conn, "name", "VARCHAR(16) NOT NULL DEFAULT 'Unknown'");
+            checkAndAddColumn(conn, "data", "TEXT");
+            checkAndAddColumn(conn, "last_updated", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+
+            // Special migration: Handle 'data_json' column found in some older Reloaded versions
+            if (columnExists(conn, "data_json")) {
+                logger.info("Detected 'data_json' column. Starting migration to new 'data' column...");
+                try {
+                    // 1. Copy data from data_json to data for all records where data is currently empty
+                    String updateSql = "UPDATE player_data SET data = data_json WHERE (data IS NULL OR data = '') AND data_json IS NOT NULL AND data_json != ''";
+                    try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
+                        int updated = ps.executeUpdate();
+                        logger.info("Migrated " + updated + " records from 'data_json' to 'data'.");
+                    }
+                    
+                    // 2. Drop the old column so future INSERTS don't fail due to "no default value"
+                    // We only do this if we are sure the data column now exists and is populated
+                    if (columnExists(conn, "data")) {
+                        logger.info("Dropping legacy 'data_json' column...");
+                        try (PreparedStatement ps = conn.prepareStatement("ALTER TABLE player_data DROP COLUMN data_json")) {
+                            ps.execute();
+                            logger.info("Successfully dropped 'data_json' column.");
+                        }
+                    }
+                } catch (SQLException e) {
+                    logger.log(Level.WARNING, "Migration of 'data_json' partially failed. The plugin will still try to work, but you should check your database.", e);
+                }
+            }
+
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "Could not create database tables", e);
+        }
+    }
+
+    private void checkAndAddColumn(Connection conn, String column, String definition) {
+        if (columnExists(conn, column)) return;
+        
+        // Column likely doesn't exist
+        logger.info("Adding missing column '" + column + "' to player_data table...");
+        String sql = "ALTER TABLE player_data ADD COLUMN " + column + " " + definition;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.execute();
+        } catch (SQLException ex) {
+            logger.log(Level.WARNING, "Could not add column '" + column + "'. This might be okay if it already exists.", ex);
+        }
+    }
+
+    private boolean columnExists(Connection conn, String column) {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT " + column + " FROM player_data LIMIT 0")) {
+            ps.executeQuery();
+            return true;
+        } catch (SQLException e) {
+            return false;
         }
     }
 
@@ -150,21 +203,46 @@ public class SqlStorage implements Storage {
     @Override
     public CompletableFuture<Optional<PlayerData>> load(UUID uuid) {
         return CompletableFuture.supplyAsync(() -> {
-            String sql = "SELECT data FROM player_data WHERE uuid = ?";
+            String sql = "SELECT * FROM player_data WHERE uuid = ?";
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, uuid.toString());
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
-                        String rawData = rs.getString("data");
-                        if (encryptionKey != null && encryptionKey.length() >= 16 && !rawData.startsWith("{")) {
+                        String rawData = null;
+                        
+                        // Check 'data' column first
+                        try {
+                            rawData = rs.getString("data");
+                        } catch (SQLException ignored) {}
+
+                        // Fallback to 'data_json' if 'data' is empty or didn't exist in the result
+                        if (rawData == null || rawData.isEmpty()) {
+                            try {
+                                rawData = rs.getString("data_json");
+                            } catch (SQLException ignored) {}
+                        }
+                        
+                        // 1. If both are empty, it's likely a legacy record (multi-column)
+                        if (rawData == null || rawData.isEmpty()) {
+                             return loadLegacyInternal(uuid);
+                        }
+
+                        // 2. Handle encryption
+                        if (encryptionKey != null && encryptionKey.length() >= 16 && !rawData.trim().startsWith("{")) {
                             try {
                                 rawData = CryptoUtil.decrypt(rawData, encryptionKey);
                             } catch (Exception e) {
-                                logger.severe("CRITICAL: Failed to decrypt personal data for " + uuid);
-                                return Optional.empty();
+                                logger.severe("CRITICAL: Failed to decrypt personal data for " + uuid + ". Trying legacy fallback.");
+                                return loadLegacyInternal(uuid);
                             }
                         }
+                        
+                        // 3. Final check: if it still doesn't look like JSON, try legacy
+                        if (rawData == null || !rawData.trim().startsWith("{")) {
+                             return loadLegacyInternal(uuid);
+                        }
+
                         return Optional.of(gson.fromJson(rawData, PlayerData.class));
                     }
                 }
@@ -173,6 +251,22 @@ public class SqlStorage implements Storage {
             }
             return Optional.empty();
         }, dbExecutor);
+    }
+
+    private Optional<PlayerData> loadLegacyInternal(UUID uuid) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT * FROM player_data WHERE uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    LegacyMigrator mapper = new LegacyMigrator(logger);
+                    return Optional.of(mapper.mapSql(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Could not load legacy player data during fallback for " + uuid, e);
+        }
+        return Optional.empty();
     }
 
     @Override
