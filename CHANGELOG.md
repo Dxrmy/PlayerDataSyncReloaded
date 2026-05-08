@@ -2,6 +2,10 @@
 
 All notable changes to PlayerDataSyncReloaded will be documented in this file.
 
+## [26.5.5-ALPHA] - 2026-05-05 (SNAPSHOT)
+### Added
+- **Initial Development**: Preparing for new features in the upcoming 26.5.5 release.
+
 ## [26.5.4-Release] - 2026-05-05
 ### Fixed
 - **Build Process**: Redirected final shaded JAR output to the root build directory for easier access.

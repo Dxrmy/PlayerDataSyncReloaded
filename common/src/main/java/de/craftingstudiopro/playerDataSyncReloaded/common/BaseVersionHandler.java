@@ -38,6 +38,11 @@ public abstract class BaseVersionHandler implements VersionHandler {
         data.foodLevel = player.getFoodLevel();
         data.saturation = player.getSaturation();
         data.exhaustion = player.getExhaustion();
+        data.airLevel = player.getRemainingAir();
+        data.fireTicks = player.getFireTicks();
+        data.freezeTicks = player.getFreezeTicks();
+        data.arrowsInBody = player.getArrowsInBody();
+        data.absorptionAmount = player.getAbsorptionAmount();
 
         // Exp
         data.level = player.getLevel();
@@ -50,6 +55,9 @@ public abstract class BaseVersionHandler implements VersionHandler {
         try {
             data.isFlying = player.isFlying();
             data.canFly = player.getAllowFlight();
+            data.walkSpeed = player.getWalkSpeed();
+            data.flySpeed = player.getFlySpeed();
+            data.fallDistance = player.getFallDistance();
         } catch (NoSuchMethodError ignored) {}
 
         // Effects
@@ -63,6 +71,8 @@ public abstract class BaseVersionHandler implements VersionHandler {
         data.z = loc.getZ();
         data.yaw = loc.getYaw();
         data.pitch = loc.getPitch();
+        data.playerTime = player.getPlayerTime();
+        data.playerWeather = player.getPlayerWeather() != null ? player.getPlayerWeather().name() : null;
 
         // PDC
         try {
@@ -91,6 +101,11 @@ public abstract class BaseVersionHandler implements VersionHandler {
         player.setFoodLevel(data.foodLevel);
         player.setSaturation(data.saturation);
         player.setExhaustion(data.exhaustion);
+        player.setRemainingAir(data.airLevel);
+        player.setFireTicks(data.fireTicks);
+        player.setFreezeTicks(data.freezeTicks);
+        player.setArrowsInBody(data.arrowsInBody);
+        player.setAbsorptionAmount(data.absorptionAmount);
 
         // Exp
         player.setLevel(data.level);
@@ -103,6 +118,9 @@ public abstract class BaseVersionHandler implements VersionHandler {
         try {
             player.setAllowFlight(data.canFly);
             player.setFlying(data.isFlying);
+            player.setWalkSpeed(data.walkSpeed);
+            player.setFlySpeed(data.flySpeed);
+            player.setFallDistance(data.fallDistance);
         } catch (NoSuchMethodError ignored) {}
 
         // Effects
@@ -137,6 +155,20 @@ public abstract class BaseVersionHandler implements VersionHandler {
             applyStatistics(player, (Map<String, Integer>) SerializationUtil.fromBase64(data.statistics));
             applyAdvancements(player, (java.util.List<String>) SerializationUtil.fromBase64(data.advancements));
         } catch (Exception ignored) {}
+
+        // Time & Weather
+        if (data.playerTime != -1) {
+            player.setPlayerTime(data.playerTime, false);
+        } else {
+            player.resetPlayerTime();
+        }
+        if (data.playerWeather != null) {
+            try {
+                player.setPlayerWeather(org.bukkit.WeatherType.valueOf(data.playerWeather));
+            } catch (Exception ignored) {}
+        } else {
+            player.resetPlayerWeather();
+        }
     }
     
     protected Map<String, Double> captureAttributes(Player player) {

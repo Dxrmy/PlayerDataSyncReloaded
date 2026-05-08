@@ -10,6 +10,7 @@ public class PlayerData implements Serializable {
 
     public UUID uuid;
     public String name;
+    public int arrowsInBody;
 
     // Items
     public String inventoryContents; // Serialized NBT or Base64
@@ -19,9 +20,13 @@ public class PlayerData implements Serializable {
     // Stats
     public double health;
     public double healthScale;
+    public double absorptionAmount;
     public int foodLevel;
     public float saturation;
     public float exhaustion;
+    public int airLevel;
+    public int fireTicks;
+    public int freezeTicks;
 
     // Experience
     public int level;
@@ -32,6 +37,9 @@ public class PlayerData implements Serializable {
     public String gameMode;
     public boolean isFlying;
     public boolean canFly;
+    public float walkSpeed;
+    public float flySpeed;
+    public float fallDistance;
 
     // Potion Effects (Serialized)
     public String potionEffects;
@@ -45,6 +53,8 @@ public class PlayerData implements Serializable {
     public String worldName;
     public double x, y, z;
     public float yaw, pitch;
+    public long playerTime = -1;
+    public String playerWeather;
 
     // PDC
     public String persistentDataContainer;

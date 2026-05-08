@@ -206,6 +206,18 @@ public class SyncManager {
         if (!config.getBoolean("sync.game_mode", true)) data.gameMode = "SURVIVAL";
         if (!config.getBoolean("sync.advancements", true)) data.advancements = null;
         if (!config.getBoolean("sync.statistics", true)) data.statistics = null;
+        if (!config.getBoolean("sync.air_level", true)) data.airLevel = 300;
+        if (!config.getBoolean("sync.fire_ticks", true)) data.fireTicks = 0;
+        if (!config.getBoolean("sync.player_time", true)) data.playerTime = -1;
+        if (!config.getBoolean("sync.player_weather", true)) data.playerWeather = null;
+        if (!config.getBoolean("sync.freeze_ticks", true)) data.freezeTicks = 0;
+        if (!config.getBoolean("sync.arrows_in_body", true)) data.arrowsInBody = 0;
+        if (!config.getBoolean("sync.absorption", true)) data.absorptionAmount = 0.0;
+        if (!config.getBoolean("sync.speeds", true)) {
+            data.walkSpeed = 0.2f;
+            data.flySpeed = 0.1f;
+        }
+        if (!config.getBoolean("sync.fall_distance", true)) data.fallDistance = 0.0f;
     }
 
     private boolean isWorldExcluded(String worldName) {
