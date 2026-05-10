@@ -1,6 +1,6 @@
 package de.craftingstudiopro.playerDataSyncReloaded.api;
 
-import org.bukkit.entity.Player;
+// import org.bukkit.entity.Player;
 
 import java.util.List;
 
@@ -9,22 +9,22 @@ public interface VersionHandler {
     /**
      * Captures player data.
      */
-    PlayerData capture(Player player);
+    PlayerData capture(PDSPlayer player);
 
     /**
      * Applies player data.
      */
-    void apply(Player player, PlayerData data);
+    void apply(PDSPlayer player, PlayerData data);
 
     /**
      * Serializes inventory to string.
      */
-    String serializeInventory(Player player);
+    String serializeInventory(PDSPlayer player);
 
     /**
      * Deserializes inventory from string.
      */
-    void deserializeInventory(Player player, String inventory);
+    void deserializeInventory(PDSPlayer player, String inventory);
 
     /**
      * Sets the list of materials to be excluded from synchronization.

@@ -12,9 +12,11 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 
+import de.craftingstudiopro.playerDataSyncReloaded.api.PDSPlayer;
+
 import java.util.*;
 
-public abstract class BaseVersionHandler implements VersionHandler {
+public abstract class BukkitBaseVersionHandler implements VersionHandler {
     protected List<String> itemExclusions = new ArrayList<>();
 
     @Override
@@ -23,13 +25,14 @@ public abstract class BaseVersionHandler implements VersionHandler {
     }
 
     @Override
-    public PlayerData capture(Player player) {
+    public PlayerData capture(PDSPlayer pdsPlayer) {
+        Player player = (Player) pdsPlayer.getHandle();
         PlayerData data = new PlayerData();
         data.uuid = player.getUniqueId();
         data.name = player.getName();
 
         // Items
-        data.inventoryContents = serializeInventory(player);
+        data.inventoryContents = serializeInventory(pdsPlayer);
         data.enderChestContents = SerializationUtil.toBase64(filterItems(player.getEnderChest().getContents()));
         data.selectedSlot = player.getInventory().getHeldItemSlot();
 
@@ -95,7 +98,8 @@ public abstract class BaseVersionHandler implements VersionHandler {
     }
 
     @Override
-    public void apply(Player player, PlayerData data) {
+    public void apply(PDSPlayer pdsPlayer, PlayerData data) {
+        Player player = (Player) pdsPlayer.getHandle();
         // Stats
         player.setHealth(Math.min(data.health, getMaxHealth(player)));
         player.setFoodLevel(data.foodLevel);
@@ -131,7 +135,7 @@ public abstract class BaseVersionHandler implements VersionHandler {
         } catch (Exception ignored) {}
 
         // Inventory
-        deserializeInventory(player, data.inventoryContents);
+        deserializeInventory(pdsPlayer, data.inventoryContents);
         try {
             ItemStack[] ec = (ItemStack[]) SerializationUtil.fromBase64(data.enderChestContents);
             player.getEnderChest().setContents(filterItems(ec));
@@ -250,12 +254,14 @@ public abstract class BaseVersionHandler implements VersionHandler {
     protected abstract double getMaxHealth(Player player);
 
     @Override
-    public String serializeInventory(Player player) {
+    public String serializeInventory(PDSPlayer pdsPlayer) {
+        Player player = (Player) pdsPlayer.getHandle();
         return SerializationUtil.toBase64(filterItems(player.getInventory().getContents()));
     }
 
     @Override
-    public void deserializeInventory(Player player, String inventory) {
+    public void deserializeInventory(PDSPlayer pdsPlayer, String inventory) {
+        Player player = (Player) pdsPlayer.getHandle();
         try {
             ItemStack[] contents = (ItemStack[]) SerializationUtil.fromBase64(inventory);
             player.getInventory().setContents(filterItems(contents));

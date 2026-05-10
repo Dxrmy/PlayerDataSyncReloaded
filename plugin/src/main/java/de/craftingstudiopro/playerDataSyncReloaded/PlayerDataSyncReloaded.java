@@ -26,8 +26,10 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     private VersionHandler versionHandler;
     private Storage storage;
     private SyncManager syncManager;
+    private de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPlatform platform;
     private de.craftingstudiopro.playerDataSyncReloaded.common.redis.RedisManager redisManager;
     private net.milkbowl.vault.economy.Economy economy;
+    private de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager discordManager;
     private de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager backupManager;
     private final Metrics metrics = BukkitMetrics.factory()
             .token("744d645fca7c2275b2986db7cd58da0c")
@@ -54,11 +56,23 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         
         getLogger().info("§aSuccessfully connected to storage backend.");
 
-        this.syncManager = new SyncManager(this, storage, versionHandler);
+        this.platform = new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPlatform(this);
+        this.syncManager = new SyncManager(platform, storage, versionHandler);
         this.backupManager = new de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager(getLogger(), storage, new java.io.File(getDataFolder(), "backups"));
         setupVault();
         setupRedis();
+        setupDiscord();
         
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "pds:sync");
+        getServer().getMessenger().registerIncomingPluginChannel(this, "pds:sync", (channel, player, message) -> {
+            String msg = new String(message);
+            if (msg.startsWith("save:")) {
+                syncManager.handleQuit(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(player));
+            } else if (msg.startsWith("load:")) {
+                syncManager.handleJoin(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(player));
+            }
+        });
+
         Bukkit.getPluginManager().registerEvents(this, this);
         
         getCommand("playerdatasync").setExecutor(new de.craftingstudiopro.playerDataSyncReloaded.plugin.command.PDSCommand(this));
@@ -193,6 +207,21 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         }
     }
 
+    private void setupDiscord() {
+        FileConfiguration config = getConfig();
+        if (config.getBoolean("discord.enabled", false)) {
+            String webhookUrl = config.getString("discord.webhook_url", "");
+            String username = config.getString("discord.username", "PlayerDataSync");
+            String avatarUrl = config.getString("discord.avatar_url", "");
+            
+            this.discordManager = new de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager(
+                getLogger(), webhookUrl, username, avatarUrl, true
+            );
+            this.syncManager.setDiscordManager(this.discordManager);
+            getLogger().info("§aDiscord webhook integration enabled!");
+        }
+    }
+
     private void setupVault() {
         if (Bukkit.getPluginManager().getPlugin("Vault") == null) return;
         org.bukkit.plugin.RegisteredServiceProvider<net.milkbowl.vault.economy.Economy> rsp = getServer().getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class);
@@ -224,7 +253,7 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
                 // We capture on main thread
                 Bukkit.getScheduler().runTask(this, () -> {
                     if (player.isOnline()) {
-                        syncManager.handleQuit(player, true); // True = isAutosave
+                        syncManager.handleQuit(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(player), true); // True = isAutosave
                     }
                 });
             }
@@ -233,12 +262,12 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        syncManager.handleJoin(event.getPlayer());
+        syncManager.handleJoin(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(event.getPlayer()));
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onQuit(PlayerQuitEvent event) {
-        syncManager.handleQuit(event.getPlayer());
+        syncManager.handleQuit(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(event.getPlayer()));
     }
 
     public void reloadPlugin() {

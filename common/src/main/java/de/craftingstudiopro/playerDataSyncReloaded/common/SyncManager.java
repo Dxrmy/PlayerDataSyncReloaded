@@ -1,40 +1,37 @@
 package de.craftingstudiopro.playerDataSyncReloaded.common;
 
+import de.craftingstudiopro.playerDataSyncReloaded.api.PDSPlayer;
 import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerData;
 import de.craftingstudiopro.playerDataSyncReloaded.api.VersionHandler;
 import de.craftingstudiopro.playerDataSyncReloaded.common.redis.RedisManager;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.Storage;
-import net.milkbowl.vault.economy.Economy;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
-import org.bukkit.plugin.java.JavaPlugin;
+import de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 public class SyncManager {
-    private final JavaPlugin plugin;
+    private final Platform platform;
     private final Storage storage;
     private final VersionHandler versionHandler;
     private final Logger logger;
     private final ConcurrentHashMap<UUID, Boolean> syncInProgress = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> inventoryHashes = new ConcurrentHashMap<>();
-    private final boolean isFolia;
     private RedisManager redisManager;
-    private Economy economy;
+    private DiscordWebhookManager discordManager;
+    private double economyPlaceholder = 0; // Simple placeholder if platform doesn't handle economy
 
-    public SyncManager(JavaPlugin plugin, Storage storage, VersionHandler versionHandler) {
-        this.plugin = plugin;
+    public SyncManager(Platform platform, Storage storage, VersionHandler versionHandler) {
+        this.platform = platform;
         this.storage = storage;
         this.versionHandler = versionHandler;
-        this.logger = plugin.getLogger();
-        this.isFolia = isFolia();
+        this.logger = platform.getLogger();
         refreshExclusions();
     }
 
     public void refreshExclusions() {
-        this.versionHandler.setItemExclusions(plugin.getConfig().getStringList("exclusions.items"));
+        this.versionHandler.setItemExclusions(platform.getConfigStringList("exclusions.items"));
     }
 
     public void setRedisManager(RedisManager redisManager) {
@@ -43,197 +40,134 @@ public class SyncManager {
             if (message.startsWith("saved:")) {
                 String uuidStr = message.substring(6);
                 UUID uuid = UUID.fromString(uuidStr);
-                Player player = Bukkit.getPlayer(uuid);
-                if (player != null && player.isOnline()) {
-                    handleJoin(player);
-                }
+                // Implementation depends on platform to find player and trigger handleJoin
+                // For now, we'll assume the platform handles the event or we need a way to find PDSPlayer
             }
         });
     }
 
-    public void setEconomy(Economy economy) {
-        this.economy = economy;
+    public void setDiscordManager(DiscordWebhookManager discordManager) {
+        this.discordManager = discordManager;
     }
 
-    public void handleJoin(Player player) {
-        if (isWorldExcluded(player.getWorld().getName())) {
-            debug("Skipping join sync for " + player.getName() + " in excluded world: " + player.getWorld().getName());
-            return;
-        }
-
+    public void handleJoin(PDSPlayer player) {
         syncInProgress.put(player.getUniqueId(), true);
         
-        String syncStarted = plugin.getConfig().getString("messages.sync_started", "&7Syncing your data...");
+        String syncStarted = platform.getConfigString("messages.sync_started", "&7Syncing your data...");
         if (!syncStarted.isEmpty()) {
-            player.sendMessage(format(syncStarted));
+            platform.sendMessage(player.getUniqueId(), syncStarted);
         }
 
         long startTime = System.currentTimeMillis();
         storage.load(player.getUniqueId()).thenAccept(optionalData -> {
             if (optionalData.isPresent()) {
                 PlayerData data = optionalData.get();
-                if (isFolia) {
-                    Bukkit.getRegionScheduler().run(plugin, player.getLocation(), task -> applyData(player, data, startTime));
-                } else {
-                    Bukkit.getScheduler().runTask(plugin, () -> applyData(player, data, startTime));
-                }
+                platform.runTask(() -> applyData(player, data, startTime));
             } else {
                 syncInProgress.remove(player.getUniqueId());
             }
         }).exceptionally(ex -> {
             syncInProgress.remove(player.getUniqueId());
-            String syncFailed = plugin.getConfig().getString("messages.sync_failed", "&cFailed to sync your data. Please contact an admin.");
+            String syncFailed = platform.getConfigString("messages.sync_failed", "&cFailed to sync your data. Please contact an admin.");
             if (!syncFailed.isEmpty()) {
-                player.sendMessage(format(syncFailed));
+                platform.sendMessage(player.getUniqueId(), syncFailed);
             }
             logger.severe("Failed to load data for " + player.getName() + ": " + ex.getMessage());
+            
+            if (discordManager != null && platform.getConfigBoolean("discord.events.sync_failed", true)) {
+                discordManager.sendSyncFailed(player.getName(), ex.getMessage());
+            }
             return null;
         });
     }
 
-    private void applyData(Player player, PlayerData data, long startTime) {
-        if (player.isOnline()) {
+    private void applyData(PDSPlayer player, PlayerData data, long startTime) {
+        if (platform.isOnline(player.getUniqueId())) {
             versionHandler.apply(player, data);
             
-            // Economy Sync
-            if (economy != null && plugin.getConfig().getBoolean("sync.economy", true)) {
-                double current = economy.getBalance(player);
-                double diff = data.balance - current;
-                if (diff > 0) economy.depositPlayer(player, diff);
-                else if (diff < 0) economy.withdrawPlayer(player, Math.abs(diff));
-            }
-
             if (data.inventoryContents != null) {
                 inventoryHashes.put(player.getUniqueId(), data.inventoryContents.hashCode());
             }
 
-            // Fire API Event
             long duration = System.currentTimeMillis() - startTime;
-            Bukkit.getServer().getPluginManager().callEvent(new de.craftingstudiopro.playerDataSyncReloaded.api.event.PlayerDataLoadEvent(player, data, duration));
-
-            String syncComplete = plugin.getConfig().getString("messages.sync_complete", "&aData synced successfully!");
+            
+            String syncComplete = platform.getConfigString("messages.sync_complete", "&aData synced successfully!");
             if (!syncComplete.isEmpty()) {
-                player.sendMessage(format(syncComplete));
+                platform.sendMessage(player.getUniqueId(), syncComplete);
             }
             logger.info("Successfully synced data for player: " + player.getName() + " (" + duration + "ms)");
+            
+            if (discordManager != null && platform.getConfigBoolean("discord.events.sync_success", true)) {
+                discordManager.sendSyncSuccess(player.getName(), duration);
+            }
         }
         syncInProgress.remove(player.getUniqueId());
     }
 
-    private String format(String message) {
-        String prefix = plugin.getConfig().getString("messages.prefix", "&8[&bSync&8] &r");
-        return org.bukkit.ChatColor.translateAlternateColorCodes('&', prefix + message);
-    }
-
-    private void debug(String message) {
-        if (plugin.getConfig().getBoolean("debug", false)) {
-            logger.info("[DEBUG] " + message);
-        }
-    }
-
-    public void handleQuit(Player player) {
+    public void handleQuit(PDSPlayer player) {
         handleQuit(player, false);
     }
 
-    public void handleQuit(Player player, boolean isAutosave) {
-        if (isWorldExcluded(player.getWorld().getName())) {
-            debug("Skipping quit sync for " + player.getName() + " in excluded world: " + player.getWorld().getName());
-            return;
-        }
-
-        // Kick player if sync is still in progress (highly unlikely at quit)
+    public void handleQuit(PDSPlayer player, boolean isAutosave) {
         if (isSyncInProgress(player.getUniqueId())) {
              logger.warning("Player " + player.getName() + " quit while sync was still in progress!");
         }
 
         PlayerData data = versionHandler.capture(player);
-        
-        // Economy Capture
-        if (economy != null && plugin.getConfig().getBoolean("sync.economy", true)) {
-            data.balance = economy.getBalance(player);
-        }
-
         filterData(data); // Apply config filters
         
-        // Performance optimization: prevent redundant saves if inventory hasn't changed
         if (data.inventoryContents != null) {
             int currentHash = data.inventoryContents.hashCode();
             Integer lastHash = inventoryHashes.remove(player.getUniqueId());
-            if (lastHash != null && lastHash == currentHash && !plugin.getConfig().getBoolean("sync.force_save_on_quit", false)) {
-                debug("Skipping redundant save for " + player.getName() + " (Inventory unchanged)");
+            if (lastHash != null && lastHash == currentHash && !platform.getConfigBoolean("sync.force_save_on_quit", false)) {
                 return;
             }
         } else {
             inventoryHashes.remove(player.getUniqueId());
         }
 
-        // Fire API Event
-        de.craftingstudiopro.playerDataSyncReloaded.api.event.PlayerDataSaveEvent event = new de.craftingstudiopro.playerDataSyncReloaded.api.event.PlayerDataSaveEvent(player, data);
-        Bukkit.getServer().getPluginManager().callEvent(event);
-        
-        if (event.isCancelled()) {
-            debug("Save for " + player.getName() + " was cancelled by another plugin.");
-            return;
-        }
-        
         storage.save(data).thenRun(() -> {
             if (!isAutosave) {
                 logger.info("Saved data for player: " + player.getName());
                 if (redisManager != null) {
                     redisManager.publish("saved:" + player.getUniqueId().toString());
                 }
-            } else {
-                debug("Auto-saved data for " + player.getName());
             }
         });
     }
 
     private void filterData(PlayerData data) {
-        var config = plugin.getConfig();
-        if (!config.getBoolean("sync.inventory", true)) data.inventoryContents = null;
-        if (!config.getBoolean("sync.ender_chest", true)) data.enderChestContents = null;
-        if (!config.getBoolean("sync.health", true)) data.health = 20.0;
-        if (!config.getBoolean("sync.experience", true)) {
+        if (!platform.getConfigBoolean("sync.inventory", true)) data.inventoryContents = null;
+        if (!platform.getConfigBoolean("sync.ender_chest", true)) data.enderChestContents = null;
+        if (!platform.getConfigBoolean("sync.health", true)) data.health = 20.0;
+        if (!platform.getConfigBoolean("sync.experience", true)) {
             data.exp = 0;
             data.level = 0;
             data.totalExperience = 0;
         }
-        if (!config.getBoolean("sync.potion_effects", true)) data.potionEffects = null;
-        if (!config.getBoolean("sync.food", true)) {
+        if (!platform.getConfigBoolean("sync.potion_effects", true)) data.potionEffects = null;
+        if (!platform.getConfigBoolean("sync.food", true)) {
             data.foodLevel = 20;
             data.saturation = 5.0f;
         }
-        if (!config.getBoolean("sync.game_mode", true)) data.gameMode = "SURVIVAL";
-        if (!config.getBoolean("sync.advancements", true)) data.advancements = null;
-        if (!config.getBoolean("sync.statistics", true)) data.statistics = null;
-        if (!config.getBoolean("sync.air_level", true)) data.airLevel = 300;
-        if (!config.getBoolean("sync.fire_ticks", true)) data.fireTicks = 0;
-        if (!config.getBoolean("sync.player_time", true)) data.playerTime = -1;
-        if (!config.getBoolean("sync.player_weather", true)) data.playerWeather = null;
-        if (!config.getBoolean("sync.freeze_ticks", true)) data.freezeTicks = 0;
-        if (!config.getBoolean("sync.arrows_in_body", true)) data.arrowsInBody = 0;
-        if (!config.getBoolean("sync.absorption", true)) data.absorptionAmount = 0.0;
-        if (!config.getBoolean("sync.speeds", true)) {
+        if (!platform.getConfigBoolean("sync.game_mode", true)) data.gameMode = "SURVIVAL";
+        if (!platform.getConfigBoolean("sync.advancements", true)) data.advancements = null;
+        if (!platform.getConfigBoolean("sync.statistics", true)) data.statistics = null;
+        if (!platform.getConfigBoolean("sync.air_level", true)) data.airLevel = 300;
+        if (!platform.getConfigBoolean("sync.fire_ticks", true)) data.fireTicks = 0;
+        if (!platform.getConfigBoolean("sync.player_time", true)) data.playerTime = -1;
+        if (!platform.getConfigBoolean("sync.player_weather", true)) data.playerWeather = null;
+        if (!platform.getConfigBoolean("sync.freeze_ticks", true)) data.freezeTicks = 0;
+        if (!platform.getConfigBoolean("sync.arrows_in_body", true)) data.arrowsInBody = 0;
+        if (!platform.getConfigBoolean("sync.absorption", true)) data.absorptionAmount = 0.0;
+        if (!platform.getConfigBoolean("sync.speeds", true)) {
             data.walkSpeed = 0.2f;
             data.flySpeed = 0.1f;
         }
-        if (!config.getBoolean("sync.fall_distance", true)) data.fallDistance = 0.0f;
-    }
-
-    private boolean isWorldExcluded(String worldName) {
-        return plugin.getConfig().getStringList("exclusions.worlds").contains(worldName);
+        if (!platform.getConfigBoolean("sync.fall_distance", true)) data.fallDistance = 0.0f;
     }
 
     public boolean isSyncInProgress(UUID uuid) {
         return syncInProgress.getOrDefault(uuid, false);
-    }
-
-    private boolean isFolia() {
-        try {
-            Class.forName("io.papermc.paper.threadedregionscheduler.RegionScheduler");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
     }
 }

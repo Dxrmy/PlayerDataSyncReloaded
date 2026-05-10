@@ -7,6 +7,9 @@ rootProject.name = "PlayerDataSyncReloaded"
 include("api")
 include("common")
 include("plugin")
+include("velocity")
+include("fabric")
+include("forge")
 
 // Version modules
 val versionModules = listOf(

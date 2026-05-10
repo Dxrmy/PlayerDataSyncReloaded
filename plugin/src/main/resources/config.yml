@@ -75,3 +75,17 @@ messages:
   sync_started: "&7Syncing your data..."
   sync_complete: "&aData synced successfully!"
   sync_failed: "&cFailed to sync your data. Please contact an admin."
+
+# Discord Webhook Settings
+discord:
+  enabled: false
+  webhook_url: ""
+  username: "PlayerDataSync"
+  avatar_url: ""
+  # Filter which events to send to Discord
+  events:
+    sync_success: true
+    sync_failed: true
+    errors: true
+    backups: true
+
