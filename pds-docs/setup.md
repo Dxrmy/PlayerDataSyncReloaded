@@ -30,14 +30,16 @@ We use a modular Gradle architecture. This allows us to maintain compatibility a
 git clone https://github.com/DerGamer009/PlayerDataSyncReloaded.git
 cd PlayerDataSyncReloaded
 
-# Build the shaded plugin jar
-./gradlew clean :plugin:shadowJar
+# Build the shaded plugin jar (embeds Velocity / Fabric / Forge under bundled/)
+./gradlew clean :plugin:build
 ```
 
 :::tip
 **Finding the Jar**  
-After a successful build, your production-ready JAR is located at:  
-`plugin/build/libs/PlayerDataSyncReloaded-26.4.jar`
+After a successful build, the Paper plugin (with embedded platform JARs under `bundled/`) is copied to:  
+`build/libs/PlayerDataSyncReloaded-<version>.jar`  
+The same file also exists at `plugin/build/libs/PlayerDataSyncReloaded-<version>.jar`.  
+Extract `bundled/playerdatasync-velocity.jar`, `bundled/playerdatasync-fabric.jar`, or `bundled/playerdatasync-forge.jar` for those loaders. See `pds-docs/modrinth-upload.md`.
 :::
 
 ---

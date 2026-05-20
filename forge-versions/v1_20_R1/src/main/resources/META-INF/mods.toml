@@ -1,0 +1,25 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="playerdatasync"
+version="${mod_version}"
+displayName="PlayerDataSync"
+authors="CraftingStudioPro"
+description='''
+Cross-platform player data synchronization.
+'''
+
+[[dependencies.playerdatasync]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.playerdatasync]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="BOTH"

@@ -1,11 +1,13 @@
 package de.craftingstudiopro.playerDataSyncReloaded;
 
+import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerDataSyncAPI;
 import de.craftingstudiopro.playerDataSyncReloaded.api.VersionHandler;
 import de.craftingstudiopro.playerDataSyncReloaded.common.Migrator;
 import de.craftingstudiopro.playerDataSyncReloaded.common.SyncManager;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.MongoStorage;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.SqlStorage;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.Storage;
+import de.craftingstudiopro.playerDataSyncReloaded.plugin.api.BukkitPlayerDataSyncAPI;
 // import de.craftingstudiopro.playerDataSyncReloaded.v26_1.VersionHandlerImpl;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -13,10 +15,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import dev.faststats.bukkit.BukkitMetrics;
 import dev.faststats.core.Metrics;
 
@@ -31,6 +33,8 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     private net.milkbowl.vault.economy.Economy economy;
     private de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager discordManager;
     private de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager backupManager;
+    private PlayerDataSyncAPI api;
+    private BukkitTask autoSaveTask;
     private final Metrics metrics = BukkitMetrics.factory()
             .token("744d645fca7c2275b2986db7cd58da0c")
             .create(this);
@@ -59,6 +63,8 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         this.platform = new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPlatform(this);
         this.syncManager = new SyncManager(platform, storage, versionHandler);
         this.backupManager = new de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager(getLogger(), storage, new java.io.File(getDataFolder(), "backups"));
+        this.api = new BukkitPlayerDataSyncAPI(this);
+        getServer().getServicesManager().register(PlayerDataSyncAPI.class, this.api, this, org.bukkit.plugin.ServicePriority.Normal);
         setupVault();
         setupRedis();
         setupDiscord();
@@ -74,9 +80,16 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         });
 
         Bukkit.getPluginManager().registerEvents(this, this);
-        
-        getCommand("playerdatasync").setExecutor(new de.craftingstudiopro.playerDataSyncReloaded.plugin.command.PDSCommand(this));
-        getCommand("playerdatasync").setTabCompleter(new de.craftingstudiopro.playerDataSyncReloaded.plugin.command.PDSCommand(this));
+
+        org.bukkit.command.PluginCommand command = getCommand("playerdatasync");
+        if (command != null) {
+            de.craftingstudiopro.playerDataSyncReloaded.plugin.command.PDSCommand handler =
+                    new de.craftingstudiopro.playerDataSyncReloaded.plugin.command.PDSCommand(this);
+            command.setExecutor(handler);
+            command.setTabCompleter(handler);
+        } else {
+            getLogger().warning("Could not register /playerdatasync command because plugin.yml mapping is missing.");
+        }
 
         // Initialize bStats
         new org.bstats.bukkit.Metrics(this, 30594);
@@ -124,26 +137,32 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     }
 
     private void setupRedis() {
+        if (this.redisManager != null) {
+            this.redisManager.close();
+            this.redisManager = null;
+        }
+        this.syncManager.clearRedisManager();
+
         FileConfiguration config = getConfig();
         if (config.getBoolean("redis.enabled", false)) {
             String host = config.getString("redis.host", "localhost");
             int port = config.getInt("redis.port", 6379);
             String password = config.getString("redis.password", "");
             boolean ssl = config.getBoolean("redis.ssl", false);
-            
+
             this.redisManager = new de.craftingstudiopro.playerDataSyncReloaded.common.redis.RedisManager(getLogger(), host, port, password, ssl);
             try {
                 this.redisManager.init();
                 this.syncManager.setRedisManager(this.redisManager);
                 debug("Redis Pub/Sub subscription initialized.");
-                getLogger().info("§aRedis synchronization enabled!");
+                getLogger().info("\u00A7aRedis synchronization enabled!");
             } catch (Exception e) {
-                getLogger().severe("§cCould not connect to Redis! Synchronization might be delayed.");
+                getLogger().severe("\u00A7cCould not connect to Redis! Synchronization might be delayed.");
                 this.redisManager = null;
+                this.syncManager.clearRedisManager();
             }
         }
     }
-
     private boolean setupStorage() {
         FileConfiguration config = getConfig();
         ConfigurationSection dbConfig = config.getConfigurationSection("storage");
@@ -199,29 +218,39 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
 
     @Override
     public void onDisable() {
+        if (autoSaveTask != null) {
+            autoSaveTask.cancel();
+            autoSaveTask = null;
+        }
         if (storage != null) {
             storage.close();
         }
         if (redisManager != null) {
             redisManager.close();
         }
+        if (syncManager != null) {
+            syncManager.clearRedisManager();
+            syncManager.clearDiscordManager();
+        }
+        getServer().getServicesManager().unregisterAll(this);
     }
-
     private void setupDiscord() {
+        this.discordManager = null;
+        this.syncManager.clearDiscordManager();
+
         FileConfiguration config = getConfig();
         if (config.getBoolean("discord.enabled", false)) {
             String webhookUrl = config.getString("discord.webhook_url", "");
             String username = config.getString("discord.username", "PlayerDataSync");
             String avatarUrl = config.getString("discord.avatar_url", "");
-            
+
             this.discordManager = new de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager(
                 getLogger(), webhookUrl, username, avatarUrl, true
             );
             this.syncManager.setDiscordManager(this.discordManager);
-            getLogger().info("§aDiscord webhook integration enabled!");
+            getLogger().info("\u00A7aDiscord webhook integration enabled!");
         }
     }
-
     private void setupVault() {
         if (Bukkit.getPluginManager().getPlugin("Vault") == null) return;
         org.bukkit.plugin.RegisteredServiceProvider<net.milkbowl.vault.economy.Economy> rsp = getServer().getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class);
@@ -242,12 +271,17 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     }
 
     private void startAutoSaveTask() {
+        if (autoSaveTask != null) {
+            autoSaveTask.cancel();
+            autoSaveTask = null;
+        }
+
         FileConfiguration config = getConfig();
         if (!config.getBoolean("autosave.enabled", true)) return;
 
         long interval = config.getLong("autosave.interval", 300) * 20L; // Convert seconds to ticks
 
-        Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
+        autoSaveTask = Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             debug("Starting auto-save for all players...");
             for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
                 // We capture on main thread
@@ -259,7 +293,6 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
             }
         }, interval, interval);
     }
-
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         syncManager.handleJoin(new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPDSPlayer(event.getPlayer()));
@@ -271,26 +304,43 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     }
 
     public void reloadPlugin() {
-        onDisable(); // Properly close storage and redis
-        reloadConfig();
-        
-        if (!setupVersionHandler()) {
-             getLogger().severe("§cCould not support your server version during reload!");
-             return;
+        if (autoSaveTask != null) {
+            autoSaveTask.cancel();
+            autoSaveTask = null;
+        }
+        if (storage != null) {
+            storage.close();
+        }
+        if (redisManager != null) {
+            redisManager.close();
+            redisManager = null;
         }
 
-        if (!setupStorage()) {
-            getLogger().severe("§cFailed to re-initialize storage!");
+        reloadConfig();
+
+        if (!setupVersionHandler()) {
+            getLogger().severe("\u00A7cCould not support your server version during reload!");
             return;
         }
 
-        this.syncManager = new SyncManager(this, storage, versionHandler);
+        if (!setupStorage()) {
+            getLogger().severe("\u00A7cFailed to re-initialize storage!");
+            return;
+        }
+
+        this.platform = new de.craftingstudiopro.playerDataSyncReloaded.plugin.BukkitPlatform(this);
+        this.syncManager = new SyncManager(this.platform, storage, versionHandler);
+        this.backupManager = new de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager(getLogger(), storage, new java.io.File(getDataFolder(), "backups"));
+        this.api = new BukkitPlayerDataSyncAPI(this);
+        getServer().getServicesManager().unregisterAll(this);
+        getServer().getServicesManager().register(PlayerDataSyncAPI.class, this.api, this, org.bukkit.plugin.ServicePriority.Normal);
         setupVault();
         setupRedis();
-        
-        getLogger().info("§aPlugin successfully reloaded.");
-    }
+        setupDiscord();
+        startAutoSaveTask();
 
+        getLogger().info("\u00A7aPlugin successfully reloaded.");
+    }
     public de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager getBackupManager() {
         return backupManager;
     }
@@ -338,5 +388,34 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         } catch (Exception e) {
             sender.sendMessage("§cCould not connect to the migration target database.");
         }
+    }
+    public PlayerDataSyncAPI getApi() {
+        return api;
+    }
+
+    public void setDebugMode(boolean enabled) {
+        getConfig().set("debug", enabled);
+        saveConfig();
+    }
+
+    public boolean isRedisEnabled() {
+        return redisManager != null;
+    }
+
+    public boolean isDiscordEnabled() {
+        return discordManager != null;
+    }
+
+    public boolean isAutosaveEnabled() {
+        return autoSaveTask != null && !autoSaveTask.isCancelled();
+    }
+
+    public String getStorageType() {
+        String configured = getConfig().getString("storage.type", "unknown");
+        return configured == null ? "unknown" : configured.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    public Storage getStorage() {
+        return storage;
     }
 }

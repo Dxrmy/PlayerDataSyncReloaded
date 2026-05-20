@@ -26,4 +26,9 @@ public class BukkitPDSPlayer implements PDSPlayer {
     public Object getHandle() {
         return player;
     }
+
+    @Override
+    public String getWorldName() {
+        return player.getWorld().getName();
+    }
 }

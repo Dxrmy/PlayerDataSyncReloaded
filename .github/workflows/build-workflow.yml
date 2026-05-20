@@ -87,4 +87,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: PlayerDataSyncReloaded-v${{ github.run_number }}
-        path: plugin/build/libs/PlayerDataSyncReloaded-*.jar
+        path: build/libs/PlayerDataSyncReloaded-*.jar

@@ -10,10 +10,12 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import org.slf4j.Logger;
 
+import java.nio.charset.StandardCharsets;
+
 @Plugin(
         id = "playerdatasync",
         name = "PlayerDataSync Velocity",
-        version = "26.5.5",
+        version = PluginBuildInfo.VERSION,
         authors = {"CraftingStudioPro"}
 )
 public class PlayerDataSyncVelocity {
@@ -38,7 +40,7 @@ public class PlayerDataSyncVelocity {
     public void onServerPreConnect(ServerPreConnectEvent event) {
         // When a player is switching servers, we notify the source server to save data immediately
         event.getPlayer().getCurrentServer().ifPresent(serverConnection -> {
-            byte[] data = ("save:" + event.getPlayer().getUniqueId()).getBytes();
+            byte[] data = ("save:" + event.getPlayer().getUniqueId()).getBytes(StandardCharsets.UTF_8);
             serverConnection.sendPluginMessage(IDENTIFIER, data);
             logger.info("Triggered fast-save for " + event.getPlayer().getUsername() + " on " + serverConnection.getServerInfo().getName());
         });
@@ -47,8 +49,8 @@ public class PlayerDataSyncVelocity {
     @Subscribe
     public void onServerConnected(ServerConnectedEvent event) {
         // Notify the target server that the player has connected and data should be ready or loaded
-        byte[] data = ("load:" + event.getPlayer().getUniqueId()).getBytes();
+        byte[] data = ("load:" + event.getPlayer().getUniqueId()).getBytes(StandardCharsets.UTF_8);
         event.getServer().sendPluginMessage(IDENTIFIER, data);
-        logger.info("Notified " + event.getServerInfo().getName() + " of connection for " + event.getPlayer().getUsername());
+        logger.info("Notified " + event.getServer().getServerInfo().getName() + " of connection for " + event.getPlayer().getUsername());
     }
 }

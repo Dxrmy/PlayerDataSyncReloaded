@@ -7,8 +7,16 @@ import de.craftingstudiopro.playerDataSyncReloaded.common.redis.RedisManager;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.Storage;
 import de.craftingstudiopro.playerDataSyncReloaded.common.util.DiscordWebhookManager;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.logging.Logger;
 
 public class SyncManager {
@@ -18,6 +26,23 @@ public class SyncManager {
     private final Logger logger;
     private final ConcurrentHashMap<UUID, Boolean> syncInProgress = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> inventoryHashes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> lastSaveMillis = new ConcurrentHashMap<>();
+    private final Set<String> excludedWorlds = ConcurrentHashMap.newKeySet();
+
+    private final LongAdder loadAttempts = new LongAdder();
+    private final LongAdder loadSuccess = new LongAdder();
+    private final LongAdder loadFailed = new LongAdder();
+    private final LongAdder saveAttempts = new LongAdder();
+    private final LongAdder saveSuccess = new LongAdder();
+    private final LongAdder saveFailed = new LongAdder();
+    private final LongAdder skippedByWorld = new LongAdder();
+    private final LongAdder skippedByCooldown = new LongAdder();
+    private final LongAdder skippedByHash = new LongAdder();
+    private final AtomicLong lastLoadDurationMs = new AtomicLong(-1L);
+    private final AtomicLong lastSaveDurationMs = new AtomicLong(-1L);
+    private final AtomicLong lastErrorAt = new AtomicLong(-1L);
+    private volatile String lastErrorMessage = "";
+
     private RedisManager redisManager;
     private DiscordWebhookManager discordManager;
     private double economyPlaceholder = 0; // Simple placeholder if platform doesn't handle economy
@@ -32,6 +57,14 @@ public class SyncManager {
 
     public void refreshExclusions() {
         this.versionHandler.setItemExclusions(platform.getConfigStringList("exclusions.items"));
+        excludedWorlds.clear();
+        List<String> worlds = platform.getConfigStringList("exclusions.worlds");
+        if (worlds != null) {
+            worlds.stream()
+                    .filter(w -> w != null && !w.isBlank())
+                    .map(this::normalizeWorldName)
+                    .forEach(excludedWorlds::add);
+        }
     }
 
     public void setRedisManager(RedisManager redisManager) {
@@ -46,13 +79,32 @@ public class SyncManager {
         });
     }
 
+    public void clearRedisManager() {
+        this.redisManager = null;
+    }
+
     public void setDiscordManager(DiscordWebhookManager discordManager) {
         this.discordManager = discordManager;
     }
 
+    public void clearDiscordManager() {
+        this.discordManager = null;
+    }
+
+    public void setEconomy(Object economy) {
+        this.economyPlaceholder = economy != null ? 1.0 : 0.0;
+    }
+
     public void handleJoin(PDSPlayer player) {
+        if (isWorldExcluded(player.getWorldName())) {
+            skippedByWorld.increment();
+            logger.info("Skipped loading for " + player.getName() + " in excluded world " + player.getWorldName());
+            return;
+        }
+
+        loadAttempts.increment();
         syncInProgress.put(player.getUniqueId(), true);
-        
+
         String syncStarted = platform.getConfigString("messages.sync_started", "&7Syncing your data...");
         if (!syncStarted.isEmpty()) {
             platform.sendMessage(player.getUniqueId(), syncStarted);
@@ -65,15 +117,17 @@ public class SyncManager {
                 platform.runTask(() -> applyData(player, data, startTime));
             } else {
                 syncInProgress.remove(player.getUniqueId());
+                loadSuccess.increment();
             }
         }).exceptionally(ex -> {
             syncInProgress.remove(player.getUniqueId());
+            loadFailed.increment();
+            trackError("load data for " + player.getName(), ex);
             String syncFailed = platform.getConfigString("messages.sync_failed", "&cFailed to sync your data. Please contact an admin.");
             if (!syncFailed.isEmpty()) {
                 platform.sendMessage(player.getUniqueId(), syncFailed);
             }
-            logger.severe("Failed to load data for " + player.getName() + ": " + ex.getMessage());
-            
+
             if (discordManager != null && platform.getConfigBoolean("discord.events.sync_failed", true)) {
                 discordManager.sendSyncFailed(player.getName(), ex.getMessage());
             }
@@ -83,22 +137,29 @@ public class SyncManager {
 
     private void applyData(PDSPlayer player, PlayerData data, long startTime) {
         if (platform.isOnline(player.getUniqueId())) {
-            versionHandler.apply(player, data);
-            
-            if (data.inventoryContents != null) {
-                inventoryHashes.put(player.getUniqueId(), data.inventoryContents.hashCode());
-            }
+            try {
+                versionHandler.apply(player, data);
 
-            long duration = System.currentTimeMillis() - startTime;
-            
-            String syncComplete = platform.getConfigString("messages.sync_complete", "&aData synced successfully!");
-            if (!syncComplete.isEmpty()) {
-                platform.sendMessage(player.getUniqueId(), syncComplete);
-            }
-            logger.info("Successfully synced data for player: " + player.getName() + " (" + duration + "ms)");
-            
-            if (discordManager != null && platform.getConfigBoolean("discord.events.sync_success", true)) {
-                discordManager.sendSyncSuccess(player.getName(), duration);
+                if (data.inventoryContents != null) {
+                    inventoryHashes.put(player.getUniqueId(), data.inventoryContents.hashCode());
+                }
+
+                long duration = System.currentTimeMillis() - startTime;
+                lastLoadDurationMs.set(duration);
+                loadSuccess.increment();
+
+                String syncComplete = platform.getConfigString("messages.sync_complete", "&aData synced successfully!");
+                if (!syncComplete.isEmpty()) {
+                    platform.sendMessage(player.getUniqueId(), syncComplete);
+                }
+                logger.info("Successfully synced data for player: " + player.getName() + " (" + duration + "ms)");
+
+                if (discordManager != null && platform.getConfigBoolean("discord.events.sync_success", true)) {
+                    discordManager.sendSyncSuccess(player.getName(), duration);
+                }
+            } catch (Exception ex) {
+                loadFailed.increment();
+                trackError("apply data for " + player.getName(), ex);
             }
         }
         syncInProgress.remove(player.getUniqueId());
@@ -109,30 +170,61 @@ public class SyncManager {
     }
 
     public void handleQuit(PDSPlayer player, boolean isAutosave) {
-        if (isSyncInProgress(player.getUniqueId())) {
-             logger.warning("Player " + player.getName() + " quit while sync was still in progress!");
+        if (isWorldExcluded(player.getWorldName())) {
+            skippedByWorld.increment();
+            logger.info("Skipped saving for " + player.getName() + " in excluded world " + player.getWorldName());
+            return;
         }
 
+        if (isSyncInProgress(player.getUniqueId())) {
+            logger.warning("Player " + player.getName() + " quit while sync was still in progress!");
+        }
+
+        long now = System.currentTimeMillis();
+        long minSaveIntervalMs = getConfigLong("sync.min_save_interval_ms", 0L);
+        boolean enforceOnQuit = platform.getConfigBoolean("sync.enforce_cooldown_on_quit", false);
+        if (minSaveIntervalMs > 0L && (isAutosave || enforceOnQuit)) {
+            Long lastSaved = lastSaveMillis.get(player.getUniqueId());
+            if (lastSaved != null && now - lastSaved < minSaveIntervalMs) {
+                skippedByCooldown.increment();
+                return;
+            }
+        }
+
+        saveAttempts.increment();
         PlayerData data = versionHandler.capture(player);
         filterData(data); // Apply config filters
-        
+
         if (data.inventoryContents != null) {
             int currentHash = data.inventoryContents.hashCode();
-            Integer lastHash = inventoryHashes.remove(player.getUniqueId());
+            Integer lastHash = inventoryHashes.get(player.getUniqueId());
             if (lastHash != null && lastHash == currentHash && !platform.getConfigBoolean("sync.force_save_on_quit", false)) {
+                skippedByHash.increment();
                 return;
             }
         } else {
             inventoryHashes.remove(player.getUniqueId());
         }
 
+        long startTime = System.currentTimeMillis();
         storage.save(data).thenRun(() -> {
+            long duration = System.currentTimeMillis() - startTime;
+            lastSaveDurationMs.set(duration);
+            saveSuccess.increment();
+            lastSaveMillis.put(player.getUniqueId(), System.currentTimeMillis());
+            if (data.inventoryContents != null) {
+                inventoryHashes.put(player.getUniqueId(), data.inventoryContents.hashCode());
+            }
             if (!isAutosave) {
                 logger.info("Saved data for player: " + player.getName());
                 if (redisManager != null) {
-                    redisManager.publish("saved:" + player.getUniqueId().toString());
+                    redisManager.publish("saved:" + player.getUniqueId());
                 }
             }
+        }).exceptionally(ex -> {
+            saveFailed.increment();
+            trackError("save data for " + player.getName(), ex);
+            return null;
         });
     }
 
@@ -169,5 +261,109 @@ public class SyncManager {
 
     public boolean isSyncInProgress(UUID uuid) {
         return syncInProgress.getOrDefault(uuid, false);
+    }
+
+    public CompletableFuture<Optional<PlayerData>> loadStoredData(UUID uuid) {
+        return storage.load(uuid);
+    }
+
+    public SyncStats getStatsSnapshot() {
+        return new SyncStats(
+                syncInProgress.size(),
+                loadAttempts.sum(),
+                loadSuccess.sum(),
+                loadFailed.sum(),
+                saveAttempts.sum(),
+                saveSuccess.sum(),
+                saveFailed.sum(),
+                skippedByWorld.sum(),
+                skippedByCooldown.sum(),
+                skippedByHash.sum(),
+                lastLoadDurationMs.get(),
+                lastSaveDurationMs.get(),
+                lastErrorAt.get(),
+                lastErrorMessage,
+                Collections.unmodifiableSet(excludedWorlds)
+        );
+    }
+
+    private void trackError(String context, Throwable throwable) {
+        String message = throwable.getMessage() != null ? throwable.getMessage() : throwable.getClass().getSimpleName();
+        lastErrorMessage = context + ": " + message;
+        lastErrorAt.set(System.currentTimeMillis());
+        logger.severe("Failed to " + context + ": " + message);
+    }
+
+    private boolean isWorldExcluded(String worldName) {
+        return !excludedWorlds.isEmpty() && excludedWorlds.contains(normalizeWorldName(worldName));
+    }
+
+    private String normalizeWorldName(String worldName) {
+        if (worldName == null) return "";
+        return worldName.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private long getConfigLong(String path, long defaultValue) {
+        try {
+            String value = platform.getConfigString(path, Long.toString(defaultValue));
+            if (value == null || value.isBlank()) {
+                return defaultValue;
+            }
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    public static final class SyncStats {
+        public final int activeSyncs;
+        public final long loadAttempts;
+        public final long loadSuccess;
+        public final long loadFailed;
+        public final long saveAttempts;
+        public final long saveSuccess;
+        public final long saveFailed;
+        public final long skippedByWorld;
+        public final long skippedByCooldown;
+        public final long skippedByHash;
+        public final long lastLoadDurationMs;
+        public final long lastSaveDurationMs;
+        public final long lastErrorAtEpochMs;
+        public final String lastErrorMessage;
+        public final Set<String> excludedWorlds;
+
+        public SyncStats(
+                int activeSyncs,
+                long loadAttempts,
+                long loadSuccess,
+                long loadFailed,
+                long saveAttempts,
+                long saveSuccess,
+                long saveFailed,
+                long skippedByWorld,
+                long skippedByCooldown,
+                long skippedByHash,
+                long lastLoadDurationMs,
+                long lastSaveDurationMs,
+                long lastErrorAtEpochMs,
+                String lastErrorMessage,
+                Set<String> excludedWorlds
+        ) {
+            this.activeSyncs = activeSyncs;
+            this.loadAttempts = loadAttempts;
+            this.loadSuccess = loadSuccess;
+            this.loadFailed = loadFailed;
+            this.saveAttempts = saveAttempts;
+            this.saveSuccess = saveSuccess;
+            this.saveFailed = saveFailed;
+            this.skippedByWorld = skippedByWorld;
+            this.skippedByCooldown = skippedByCooldown;
+            this.skippedByHash = skippedByHash;
+            this.lastLoadDurationMs = lastLoadDurationMs;
+            this.lastSaveDurationMs = lastSaveDurationMs;
+            this.lastErrorAtEpochMs = lastErrorAtEpochMs;
+            this.lastErrorMessage = lastErrorMessage;
+            this.excludedWorlds = excludedWorlds;
+        }
     }
 }

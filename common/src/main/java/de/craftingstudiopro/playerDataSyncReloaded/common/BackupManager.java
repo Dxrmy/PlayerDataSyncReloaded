@@ -29,6 +29,27 @@ public class BackupManager {
         if (!backupDir.exists()) backupDir.mkdirs();
     }
 
+    public List<String> listBackups() {
+        File[] files = backupDir.listFiles((dir, fileName) -> fileName.endsWith(".json.gz"));
+        if (files == null || files.length == 0) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<String> names = new ArrayList<>();
+        for (File file : files) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".json.gz")) {
+                names.add(fileName.substring(0, fileName.length() - ".json.gz".length()));
+            }
+        }
+        names.sort(String::compareToIgnoreCase);
+        return names;
+    }
+
+    public File getBackupDirectory() {
+        return backupDir;
+    }
+
     public CompletableFuture<Void> exportBackup(String name) {
         File file = new File(backupDir, name + ".json.gz");
         logger.info("Starting backup export to: " + file.getName());

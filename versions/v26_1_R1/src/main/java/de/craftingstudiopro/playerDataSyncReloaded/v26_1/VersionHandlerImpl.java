@@ -1,8 +1,8 @@
 package de.craftingstudiopro.playerDataSyncReloaded.v26_1;
 
 import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerData;
-import de.craftingstudiopro.playerDataSyncReloaded.common.BaseVersionHandler;
-import de.craftingstudiopro.playerDataSyncReloaded.common.util.SerializationUtil;
+import de.craftingstudiopro.playerDataSyncReloaded.api.PDSPlayer;
+import de.craftingstudiopro.playerDataSyncReloaded.common.BukkitBaseVersionHandler;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
@@ -10,14 +10,14 @@ import org.bukkit.entity.Player;
 import java.util.HashMap;
 import java.util.Map;
 
-public class VersionHandlerImpl extends BaseVersionHandler {
+public class VersionHandlerImpl extends BukkitBaseVersionHandler {
 
     @Override
-    public PlayerData capture(Player player) {
-        PlayerData data = super.capture(player);
+    public PlayerData capture(PDSPlayer pdsPlayer) {
+        PlayerData data = super.capture(pdsPlayer);
+        Player player = (Player) pdsPlayer.getHandle();
         data.healthScale = player.getHealthScale();
 
-        // Modern Attributes
         Map<String, Double> attrMap = new HashMap<>();
         org.bukkit.Registry.ATTRIBUTE.forEach(attr -> {
             AttributeInstance inst = player.getAttribute(attr);
@@ -31,20 +31,23 @@ public class VersionHandlerImpl extends BaseVersionHandler {
     }
 
     @Override
-    public void apply(Player player, PlayerData data) {
-        super.apply(player, data);
+    public void apply(PDSPlayer pdsPlayer, PlayerData data) {
+        super.apply(pdsPlayer, data);
+        Player player = (Player) pdsPlayer.getHandle();
         player.setHealthScale(data.healthScale);
 
-        // Modern Attributes
         if (data.attributes != null) {
             data.attributes.forEach((key, val) -> {
                 try {
                     org.bukkit.attribute.Attribute attr = org.bukkit.Registry.ATTRIBUTE.get(org.bukkit.NamespacedKey.fromString(key));
                     if (attr != null) {
                         AttributeInstance inst = player.getAttribute(attr);
-                        if (inst != null) inst.setBaseValue(val);
+                        if (inst != null) {
+                            inst.setBaseValue(val);
+                        }
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             });
         }
     }

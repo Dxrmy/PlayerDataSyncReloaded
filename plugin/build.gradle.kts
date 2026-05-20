@@ -1,7 +1,16 @@
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
+import org.gradle.api.tasks.bundling.Jar
+
 plugins {
-    id("xyz.jpenilla.run-paper") version "3.0.2"
-    id("com.gradleup.shadow") version "9.4.1"
+    id("xyz.jpenilla.run-paper") version "2.3.1"
+    // 8.1.x uses ASM that cannot read Java 25 bytecode (major 69); GradleUp Shadow bundles current ASM.
+    id("com.gradleup.shadow") version "8.3.10"
 }
+
+val fabricBundle =
+    (rootProject.findProperty("pds.fabric.bundle") as String?)?.takeIf { it.isNotBlank() } ?: "v1_20_R1"
+val forgeBundle =
+    (rootProject.findProperty("pds.forge.bundle") as String?)?.takeIf { it.isNotBlank() } ?: "v1_20_R1"
 
 dependencies {
     implementation(project(":api"))
@@ -24,11 +33,35 @@ dependencies {
 
 tasks {
     shadowJar {
+        // Paper plugin + embedded sibling JARs under bundled/ (Velocity / Fabric / Forge), not merged.
         archiveBaseName.set("PlayerDataSyncReloaded")
         archiveClassifier.set("")
         archiveVersion.set(project.version.toString())
         relocate("org.bstats", "de.craftingstudiopro.playerDataSyncReloaded.bstats")
         mergeServiceFiles()
+        // Paper 1.21.x PluginRemapper uses ASM that cannot read MR-JAR stacks (e.g. class file 69 under META-INF/versions/).
+        exclude("META-INF/versions/**")
+
+        dependsOn(
+            project(":velocity").tasks.named("jar"),
+            project(":fabric-versions:$fabricBundle").tasks.named("remapJar"),
+            project(":fabric-versions:$fabricBundle").tasks.named("checkFabricModMetadata"),
+            // reobfJar updates the regular jar in place; it does not always register outputs.files.
+            project(":forge-versions:$forgeBundle").tasks.named("reobfJar"),
+        )
+
+        from(project(":velocity").tasks.named<Jar>("jar").flatMap { it.archiveFile }) {
+            into("bundled")
+            rename { _: String -> "playerdatasync-velocity.jar" }
+        }
+        from(project(":fabric-versions:$fabricBundle").tasks.named<AbstractArchiveTask>("remapJar").flatMap { it.archiveFile }) {
+            into("bundled")
+            rename { _: String -> "playerdatasync-fabric.jar" }
+        }
+        from(project(":forge-versions:$forgeBundle").tasks.named<Jar>("jar").flatMap { it.archiveFile }) {
+            into("bundled")
+            rename { _: String -> "playerdatasync-forge.jar" }
+        }
     }
 
     val copyJar by registering(Copy::class) {

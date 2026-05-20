@@ -2,7 +2,34 @@
 
 All notable changes to PlayerDataSyncReloaded will be documented in this file.
 
-## [26.5.5-ALPHA] - 2026-05-05 (SNAPSHOT)
+## [26.5.5.1-ALPHA] - 2026-05-20
+### Added
+- **Fabric**: `fabric-api` (`0.92.2+1.20.1`) so lifecycle and server-play networking APIs resolve at compile time; `fabric.mod.json` declares a `fabric-api` dependency.
+- **Velocity**: Gradle task `generatePluginBuildInfo` emits `PluginBuildInfo.VERSION` so the `@Plugin` version always matches the Gradle project version.
+- **Modrinth / Fabric**: Guide [`pds-docs/modrinth-upload.md`](pds-docs/modrinth-upload.md) (Paper vs Fabric JAR); Gradle task **`checkFabricModMetadata`** asserts `fabric.mod.json` exists in the remapped Fabric JAR; Fabric archive base name **`playerdatasync-fabric`** so it is not confused with the Paper plugin artifact.
+- **Unified distribution JAR**: The Paper **`PlayerDataSyncReloaded-*.jar`** (also copied to **`build/libs/`**) embeds **`bundled/playerdatasync-velocity.jar`**, **`bundled/playerdatasync-fabric.jar`**, and **`bundled/playerdatasync-forge.jar`** plus **`bundled/README.txt`** — one download; extract sibling JARs for Velocity/Fabric/Forge (classes are not merged to avoid mapping clashes).
+
+### Changed
+- **Gradle / bytecode targets**: `api` and `common` use **Java 17** (Fabric/Forge); **`plugin`** and **Velocity** use **Java 21** so **Paper 1.21.x** can remap the shaded plugin (ASM does not accept class file **69**). Nested **`:versions:*`** modules are set to **21** in **`versions/build.gradle.kts`** (they are not root `subprojects`, so they previously picked up the toolchain default and emitted **69**).
+- **Velocity**: `velocity-api` updated to **3.5.0-SNAPSHOT**; Velocity→backend plugin messages use **UTF-8** (`StandardCharsets.UTF_8`); `ServerConnectedEvent` log line uses **`event.getServer().getServerInfo()`** (Velocity 3 API).
+- **Shadow plugin**: Replaced `com.github.johnrengelman.shadow` **8.1.1** with **`com.gradleup.shadow` 8.3.10** so `shadowJar` can process modern class files when relocating (e.g. bundled jars).
+- **Forge**: `META-INF/mods.toml` version is expanded from Gradle (`mod_version`); Forge `build.gradle.kts` no longer overrides root `version` / `group`.
+- **Fabric**: `build.gradle.kts` no longer overrides root `version` / `group` (single version from `gradle.properties`).
+- **Gradle runtime**: **Configuration cache disabled** in `gradle.properties` (ForgeGradle, Fabric Loom, and Shadow-related flows are not reliable with CC enabled); parallel and build caching remain enabled.
+- **CI**: Workflow runs **`./gradlew :plugin:build`** and uploads the unified **`build/libs/PlayerDataSyncReloaded-*.jar`** (includes **`bundled/`** platform JARs).
+
+### Fixed
+- **Bukkit version handlers**: `v1_20_R1` and `v26_1_R1` `VersionHandlerImpl` now extend **`BukkitBaseVersionHandler`** and implement **`capture` / `apply` with `PDSPlayer`** (restores compatibility after removal of `BaseVersionHandler`).
+- **Fabric** `PlayerDataSyncFabric`: `ServerPlayNetworking` global receiver is registered in **`SERVER_STARTING`** after storage/`SyncManager` setup; SLF4J error logging for storage init; guards when `syncManager` is not ready yet.
+- **Forge** `PlayerDataSyncForge`: storage init failures use **Log4j** instead of `printStackTrace`; packet and login handlers guard **`syncManager == null`**.
+- **Multi-platform build**: Resolved Gradle dependency variant mismatches (Fabric vs `api`/`common` JVM level). **`v26_1_R1`**: `compileClasspath` requests JVM **25** so Paper 26 `paper-api` resolves while sources still compile with **`--release 21`**.
+
+### Notes
+- **One JAR download**: `build/libs/PlayerDataSyncReloaded-*.jar` contains Paper + **`bundled/`** Velocity/Fabric/Forge JARs; Modrinth still needs the **extracted** platform files per loader (see `pds-docs/modrinth-upload.md`).
+- **Modrinth**: Use **`bundled/playerdatasync-fabric.jar`** (extracted from the distribution JAR) for the Fabric loader file — not the outer archive root (that is the Paper plugin with **`plugin.yml`** only).
+- **Paper 1.21.x**: The main plugin classes are built as **Java 21 bytecode** so the server’s **PluginRemapper** can read them. Run the server on **Java 21+** as required by Paper 1.21. **Deploy the JAR whose name matches `gradle.properties` `version`** (e.g. **`PlayerDataSyncReloaded-26.5.5.1-ALPHA.jar`**); delete any older file such as **`PlayerDataSyncReloaded-26.5.5-SNAPSHOT.jar`** from `plugins/` so Paper does not remap a stale build. The shaded jar **excludes `META-INF/versions/**`** so multi-release dependency layers (class file 69) are not shipped to the remapper.
+
+## [26.5.5-ALPHA] - 2026-05-05
 ### Added
 - **Initial Development**: Preparing for new features in the upcoming 26.5.5 release.
 
