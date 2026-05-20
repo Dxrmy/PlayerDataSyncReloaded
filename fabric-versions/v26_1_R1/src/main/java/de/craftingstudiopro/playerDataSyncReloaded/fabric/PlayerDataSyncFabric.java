@@ -5,10 +5,10 @@ import de.craftingstudiopro.playerDataSyncReloaded.common.storage.SqlStorage;
 import de.craftingstudiopro.playerDataSyncReloaded.common.storage.Storage;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +21,25 @@ public class PlayerDataSyncFabric implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        PayloadTypeRegistry.playC2S().register(PdsSyncC2SPayload.PACKET_ID, PdsSyncC2SPayload.CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(PdsSyncC2SPayload.PACKET_ID, (payload, context) -> {
+            String msg = payload.message();
+            MinecraftServer server = context.player().getServer();
+            if (server == null) {
+                return;
+            }
+            server.execute(() -> {
+                if (syncManager == null) {
+                    return;
+                }
+                if (msg.startsWith("save:")) {
+                    syncManager.handleQuit(new FabricPDSPlayer(context.player()));
+                } else if (msg.startsWith("load:")) {
+                    syncManager.handleJoin(new FabricPDSPlayer(context.player()));
+                }
+            });
+        });
+
         ServerLifecycleEvents.SERVER_STARTING.register(this::setup);
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -48,20 +67,5 @@ public class PlayerDataSyncFabric implements ModInitializer {
 
         this.syncManager = new SyncManager(platform, storage, new FabricVersionHandler());
         platform.getLogger().info("PlayerDataSync Fabric initialized!");
-
-        Identifier syncId = Identifier.of("pds", "sync");
-        ServerPlayNetworking.registerGlobalReceiver(syncId, (srv, player, handler, buf, responseSender) -> {
-            String msg = buf.readString();
-            srv.execute(() -> {
-                if (syncManager == null) {
-                    return;
-                }
-                if (msg.startsWith("save:")) {
-                    syncManager.handleQuit(new FabricPDSPlayer(player));
-                } else if (msg.startsWith("load:")) {
-                    syncManager.handleJoin(new FabricPDSPlayer(player));
-                }
-            });
-        });
     }
 }

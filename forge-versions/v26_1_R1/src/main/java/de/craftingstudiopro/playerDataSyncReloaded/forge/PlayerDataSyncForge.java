@@ -9,8 +9,8 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.minecraftforge.network.ChannelBuilder;
+import net.minecraftforge.network.SimpleChannel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -21,23 +21,22 @@ public class PlayerDataSyncForge {
     private SyncManager syncManager;
     private Storage storage;
     private ForgePlatform platform;
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
-        ResourceLocation.fromNamespaceAndPath("pds", "sync"),
-        () -> PROTOCOL_VERSION,
-        PROTOCOL_VERSION::equals,
-        PROTOCOL_VERSION::equals
-    );
+
+    public static final SimpleChannel CHANNEL = ChannelBuilder.named(ResourceLocation.fromNamespaceAndPath("pds", "sync"))
+        .networkProtocolVersion(1)
+        .simpleChannel();
 
     public PlayerDataSyncForge() {
         MinecraftForge.EVENT_BUS.register(this);
 
-        CHANNEL.registerMessage(0, String.class, (msg, buf) -> buf.writeUtf(msg), buf -> buf.readUtf(), (msg, ctx) -> {
-            ctx.get().enqueueWork(() -> {
+        CHANNEL.messageBuilder(String.class, 0)
+            .encoder((msg, buf) -> buf.writeUtf(msg))
+            .decoder(buf -> buf.readUtf(32767))
+            .consumerMainThread((msg, ctx) -> {
                 if (syncManager == null) {
                     return;
                 }
-                var player = ctx.get().getSender();
+                var player = ctx.getSender();
                 if (player != null) {
                     if (msg.startsWith("save:")) {
                         syncManager.handleQuit(new ForgePDSPlayer(player));
@@ -45,9 +44,10 @@ public class PlayerDataSyncForge {
                         syncManager.handleJoin(new ForgePDSPlayer(player));
                     }
                 }
-            });
-            ctx.get().setPacketHandled(true);
-        });
+            })
+            .add();
+
+        CHANNEL.build();
     }
 
     @SubscribeEvent

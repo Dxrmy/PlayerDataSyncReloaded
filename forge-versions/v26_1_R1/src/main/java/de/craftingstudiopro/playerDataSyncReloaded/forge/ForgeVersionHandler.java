@@ -4,6 +4,8 @@ import de.craftingstudiopro.playerDataSyncReloaded.api.PDSPlayer;
 import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerData;
 import de.craftingstudiopro.playerDataSyncReloaded.api.VersionHandler;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -13,6 +15,7 @@ import java.util.Base64;
 import java.util.List;
 
 public class ForgeVersionHandler implements VersionHandler {
+    private static final int TAG_COMPOUND = 10;
     private List<String> itemExclusions;
 
     @Override
@@ -52,10 +55,12 @@ public class ForgeVersionHandler implements VersionHandler {
     public String serializeInventory(PDSPlayer pdsPlayer) {
         ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
         try {
-            CompoundTag nbt = new CompoundTag();
-            player.getInventory().save(nbt);
+            ListTag list = new ListTag();
+            player.getInventory().save(list);
+            CompoundTag root = new CompoundTag();
+            root.put("Inventory", list);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(nbt, bos);
+            NbtIo.writeCompressed(root, bos);
             return Base64.getEncoder().encodeToString(bos.toByteArray());
         } catch (Exception e) {
             return null;
@@ -67,8 +72,9 @@ public class ForgeVersionHandler implements VersionHandler {
         ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
         try {
             byte[] bytes = Base64.getDecoder().decode(inventory);
-            CompoundTag nbt = NbtIo.readCompressed(new ByteArrayInputStream(bytes), net.minecraft.nbt.NbtAccounter.unlimitedHeap());
-            player.getInventory().load(nbt);
+            CompoundTag root = NbtIo.readCompressed(new ByteArrayInputStream(bytes), NbtAccounter.unlimitedHeap());
+            ListTag list = root.getList("Inventory", TAG_COMPOUND);
+            player.getInventory().load(list);
         } catch (Exception ignored) {}
     }
 

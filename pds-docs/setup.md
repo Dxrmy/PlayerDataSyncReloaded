@@ -34,6 +34,8 @@ cd PlayerDataSyncReloaded
 ./gradlew clean :plugin:build
 ```
 
+If Forge fails with **Java heap space** while several `:forge-versions:*` projects run MCP tasks in parallel, ensure `gradle.properties` sets a larger daemon heap (`org.gradle.jvmargs`, e.g. `-Xmx4g`). After editing it, run `./gradlew --stop` once, then build again.
+
 :::tip
 **Finding the Jar**  
 After a successful build, the Paper plugin (with embedded platform JARs under `bundled/`) is copied to:  

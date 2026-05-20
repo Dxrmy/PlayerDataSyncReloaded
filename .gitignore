@@ -17,6 +17,8 @@ out/
 
 # Logging & Temp
 *.log
+*.hprof
+*.properties
 /tmp/
 
 # OS spezifische Dateien

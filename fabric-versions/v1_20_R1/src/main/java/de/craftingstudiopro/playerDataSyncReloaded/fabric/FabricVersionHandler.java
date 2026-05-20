@@ -5,6 +5,7 @@ import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerData;
 import de.craftingstudiopro.playerDataSyncReloaded.api.VersionHandler;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.io.ByteArrayInputStream;
@@ -13,6 +14,7 @@ import java.util.Base64;
 import java.util.List;
 
 public class FabricVersionHandler implements VersionHandler {
+    private static final int NBT_COMPOUND_ID = 10;
     private List<String> itemExclusions;
 
     @Override
@@ -58,10 +60,12 @@ public class FabricVersionHandler implements VersionHandler {
     public String serializeInventory(PDSPlayer pdsPlayer) {
         ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
         try {
-            NbtCompound nbt = new NbtCompound();
-            player.getInventory().writeNbt(nbt);
+            NbtList list = new NbtList();
+            player.getInventory().writeNbt(list);
+            NbtCompound root = new NbtCompound();
+            root.put("Inventory", list);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(nbt, bos);
+            NbtIo.writeCompressed(root, bos);
             return Base64.getEncoder().encodeToString(bos.toByteArray());
         } catch (Exception e) {
             e.printStackTrace();
@@ -74,8 +78,9 @@ public class FabricVersionHandler implements VersionHandler {
         ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
         try {
             byte[] bytes = Base64.getDecoder().decode(inventory);
-            NbtCompound nbt = NbtIo.readCompressed(new ByteArrayInputStream(bytes));
-            player.getInventory().readNbt(nbt);
+            NbtCompound root = NbtIo.readCompressed(new ByteArrayInputStream(bytes));
+            NbtList list = root.getList("Inventory", NBT_COMPOUND_ID);
+            player.getInventory().readNbt(list);
         } catch (Exception e) {
             e.printStackTrace();
         }
