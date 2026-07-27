@@ -1,6 +1,6 @@
 // Fabric line aligned with Paper `v26_1_R1` (game stack still 1.21.x); bump MC/Fabric when you target a newer client.
 plugins {
-    id("fabric-loom") version "1.8.13"
+    id("fabric-loom") version "1.9.2"
 }
 
 base {
@@ -8,10 +8,10 @@ base {
 }
 
 dependencies {
-    minecraft("com.mojang:minecraft:1.21.4")
-    mappings("net.fabricmc:yarn:1.21.4+build.8:v2")
-    modImplementation("net.fabricmc:fabric-loader:0.16.14")
-    modImplementation("net.fabricmc.fabric-api:fabric-api:0.119.2+1.21.4")
+    minecraft("com.mojang:minecraft:1.21.1")
+    mappings(loom.officialMojangMappings())
+    modImplementation("net.fabricmc:fabric-loader:0.16.2")
+    modImplementation("net.fabricmc.fabric-api:fabric-api:0.102.0+1.21.1")
 
     implementation(project(":api"))
     implementation(project(":common"))

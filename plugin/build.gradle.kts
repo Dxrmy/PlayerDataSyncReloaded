@@ -8,16 +8,14 @@ plugins {
 }
 
 val fabricBundle =
-    (rootProject.findProperty("pds.fabric.bundle") as String?)?.takeIf { it.isNotBlank() } ?: "v1_20_R1"
-val forgeBundle =
-    (rootProject.findProperty("pds.forge.bundle") as String?)?.takeIf { it.isNotBlank() } ?: "v1_20_R1"
+    (rootProject.findProperty("pds.fabric.bundle") as String?)?.takeIf { it.isNotBlank() } ?: "v26_1_R1"
 
 dependencies {
     implementation(project(":api"))
     implementation(project(":common"))
 
     val versionModules = listOf(
-        "v1_20_R1", "v1_21_R1", "v26_1_R1"
+        "v26_1_R1"
     )
 
     versionModules.forEach {
@@ -25,7 +23,6 @@ dependencies {
     }
 
     implementation("org.bstats:bstats-bukkit:3.1.0")
-    implementation("dev.faststats.metrics:bukkit:0.22.0")
     implementation("org.jetbrains:annotations:24.1.0")
     compileOnly("io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
@@ -45,22 +42,16 @@ tasks {
         dependsOn(
             project(":velocity").tasks.named("jar"),
             project(":fabric-versions:$fabricBundle").tasks.named("remapJar"),
-            project(":fabric-versions:$fabricBundle").tasks.named("checkFabricModMetadata"),
-            // reobfJar updates the regular jar in place; it does not always register outputs.files.
-            project(":forge-versions:$forgeBundle").tasks.named("reobfJar"),
+            project(":fabric-versions:$fabricBundle").tasks.named("checkFabricModMetadata")
         )
 
         from(project(":velocity").tasks.named<Jar>("jar").flatMap { it.archiveFile }) {
             into("bundled")
             rename { _: String -> "playerdatasync-velocity.jar" }
         }
-        from(project(":fabric-versions:$fabricBundle").tasks.named<AbstractArchiveTask>("remapJar").flatMap { it.archiveFile }) {
+        from(project(":fabric-versions:$fabricBundle").tasks.named<AbstractArchiveTask>("jar").flatMap { it.archiveFile }) {
             into("bundled")
             rename { _: String -> "playerdatasync-fabric.jar" }
-        }
-        from(project(":forge-versions:$forgeBundle").tasks.named<Jar>("jar").flatMap { it.archiveFile }) {
-            into("bundled")
-            rename { _: String -> "playerdatasync-forge.jar" }
         }
     }
 

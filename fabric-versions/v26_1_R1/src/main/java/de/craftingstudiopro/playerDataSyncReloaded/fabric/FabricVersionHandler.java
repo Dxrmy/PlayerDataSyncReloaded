@@ -3,11 +3,11 @@ package de.craftingstudiopro.playerDataSyncReloaded.fabric;
 import de.craftingstudiopro.playerDataSyncReloaded.api.PDSPlayer;
 import de.craftingstudiopro.playerDataSyncReloaded.api.PlayerData;
 import de.craftingstudiopro.playerDataSyncReloaded.api.VersionHandler;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtSizeTracker;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -20,15 +20,15 @@ public class FabricVersionHandler implements VersionHandler {
 
     @Override
     public PlayerData capture(PDSPlayer pdsPlayer) {
-        ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
+        ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
         PlayerData data = new PlayerData();
-        data.uuid = player.getUuid();
+        data.uuid = player.getUUID();
         data.name = player.getName().getString();
 
         // Stats
         data.health = player.getHealth();
-        data.foodLevel = player.getHungerManager().getFoodLevel();
-        data.saturation = player.getHungerManager().getSaturationLevel();
+        data.foodLevel = player.getFoodData().getFoodLevel();
+        data.saturation = player.getFoodData().getSaturationLevel();
         data.exp = player.experienceProgress;
         data.level = player.experienceLevel;
         data.totalExperience = player.totalExperience;
@@ -37,17 +37,17 @@ public class FabricVersionHandler implements VersionHandler {
         data.inventoryContents = serializeInventory(pdsPlayer);
 
         // GameMode
-        data.gameMode = player.interactionManager.getGameMode().name();
+        data.gameMode = player.gameMode.getGameModeForPlayer().name();
 
         return data;
     }
 
     @Override
     public void apply(PDSPlayer pdsPlayer, PlayerData data) {
-        ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
+        ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
 
         player.setHealth((float) data.health);
-        player.getHungerManager().setFoodLevel(data.foodLevel);
+        player.getFoodData().setFoodLevel(data.foodLevel);
         player.experienceProgress = data.exp;
         player.experienceLevel = data.level;
         player.totalExperience = data.totalExperience;
@@ -59,11 +59,11 @@ public class FabricVersionHandler implements VersionHandler {
 
     @Override
     public String serializeInventory(PDSPlayer pdsPlayer) {
-        ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
+        ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
         try {
-            NbtList list = new NbtList();
-            player.getInventory().writeNbt(list);
-            NbtCompound root = new NbtCompound();
+            ListTag list = new ListTag();
+            player.getInventory().save(list);
+            CompoundTag root = new CompoundTag();
             root.put("Inventory", list);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             NbtIo.writeCompressed(root, bos);
@@ -76,12 +76,12 @@ public class FabricVersionHandler implements VersionHandler {
 
     @Override
     public void deserializeInventory(PDSPlayer pdsPlayer, String inventory) {
-        ServerPlayerEntity player = (ServerPlayerEntity) pdsPlayer.getHandle();
+        ServerPlayer player = (ServerPlayer) pdsPlayer.getHandle();
         try {
             byte[] bytes = Base64.getDecoder().decode(inventory);
-            NbtCompound root = NbtIo.readCompressed(new ByteArrayInputStream(bytes), NbtSizeTracker.ofUnlimitedBytes());
-            NbtList list = root.getList("Inventory", NBT_COMPOUND_ID);
-            player.getInventory().readNbt(list);
+            CompoundTag root = NbtIo.readCompressed(new ByteArrayInputStream(bytes), net.minecraft.nbt.NbtAccounter.unlimitedHeap());
+            ListTag list = root.getList("Inventory", NBT_COMPOUND_ID);
+            player.getInventory().load(list);
         } catch (Exception e) {
             e.printStackTrace();
         }

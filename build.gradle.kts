@@ -1,3 +1,15 @@
+buildscript {
+    configurations.all {
+        resolutionStrategy {
+            force("org.ow2.asm:asm:9.9.1")
+            force("org.ow2.asm:asm-analysis:9.9.1")
+            force("org.ow2.asm:asm-commons:9.9.1")
+            force("org.ow2.asm:asm-tree:9.9.1")
+            force("org.ow2.asm:asm-util:9.9.1")
+        }
+    }
+}
+
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 
@@ -7,14 +19,22 @@ plugins {
 }
 
 allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force("org.ow2.asm:asm:9.9.1")
+            force("org.ow2.asm:asm-analysis:9.9.1")
+            force("org.ow2.asm:asm-commons:9.9.1")
+            force("org.ow2.asm:asm-tree:9.9.1")
+            force("org.ow2.asm:asm-util:9.9.1")
+        }
+    }
     group = "de.playerdatasync"
     version = properties["version"] ?: "26.5-Release"
 
     repositories {
         mavenLocal()
         mavenCentral()
-        maven("https://repo.dergamer09.at/releases")
-        maven("https://repo.faststats.dev/releases")
+
         maven("https://repo.papermc.io/repository/maven-public/")
         maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
         maven("https://repo.codemc.io/repository/maven-public/")
@@ -96,7 +116,7 @@ subprojects {
         moduleName == "plugin" || moduleName == "velocity" -> 21
         path == ":forge-versions:v1_20_R1" -> 17
         path.startsWith(":forge-versions:") -> 21
-        path.startsWith(":fabric-versions:") -> 21
+        path.startsWith(":fabric-versions:") -> 25
         else -> 21
     }
 

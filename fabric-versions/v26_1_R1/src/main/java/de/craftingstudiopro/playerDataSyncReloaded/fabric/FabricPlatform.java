@@ -2,7 +2,7 @@ package de.craftingstudiopro.playerDataSyncReloaded.fabric;
 
 import de.craftingstudiopro.playerDataSyncReloaded.common.Platform;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.Component;
 
 import java.util.Collections;
 import java.util.List;
@@ -34,14 +34,14 @@ public class FabricPlatform implements Platform {
 
     @Override
     public boolean isOnline(UUID uuid) {
-        return server.getPlayerManager().getPlayer(uuid) != null;
+        return server.getPlayerList().getPlayer(uuid) != null;
     }
 
     @Override
     public void sendMessage(UUID uuid, String message) {
-        var player = server.getPlayerManager().getPlayer(uuid);
+        var player = server.getPlayerList().getPlayer(uuid);
         if (player != null) {
-            player.sendMessage(Text.literal(message.replace("&", "§")), false);
+            player.sendSystemMessage(Component.literal(message.replace("&", "§")));
         }
     }
 

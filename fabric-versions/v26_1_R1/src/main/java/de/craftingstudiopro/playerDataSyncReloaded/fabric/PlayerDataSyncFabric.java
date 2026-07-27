@@ -21,7 +21,26 @@ public class PlayerDataSyncFabric implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        PayloadTypeRegistry.playC2S().register(PdsSyncC2SPayload.PACKET_ID, PdsSyncC2SPayload.CODEC);
+        try {
+            try {
+                PayloadTypeRegistry.playC2S().register(PdsSyncC2SPayload.PACKET_ID, PdsSyncC2SPayload.CODEC);
+            } catch (NoSuchMethodError e) {
+                java.lang.reflect.Method m = PayloadTypeRegistry.class.getMethod("serverboundPlay");
+                Object registry = m.invoke(null);
+                java.lang.reflect.Method reg = null;
+                for (java.lang.reflect.Method method : registry.getClass().getMethods()) {
+                    if (method.getName().equals("register") && method.getParameterCount() == 2) {
+                        reg = method;
+                        break;
+                    }
+                }
+                if (reg != null) {
+                    reg.invoke(registry, PdsSyncC2SPayload.PACKET_ID, PdsSyncC2SPayload.CODEC);
+                }
+            }
+        } catch (Exception ex) {
+            LOG.error("Failed to register custom payload via reflection", ex);
+        }
         ServerPlayNetworking.registerGlobalReceiver(PdsSyncC2SPayload.PACKET_ID, (payload, context) -> {
             String msg = payload.message();
             MinecraftServer server = context.player().getServer();
@@ -58,7 +77,7 @@ public class PlayerDataSyncFabric implements ModInitializer {
     private void setup(MinecraftServer server) {
         this.platform = new FabricPlatform(server);
 
-        this.storage = new SqlStorage(platform.getLogger(), "sqlite", "", 0, "playerdata.db", "", "");
+        this.storage = new SqlStorage(platform.getLogger(), "mariadb", "localhost", 3306, "minecraft", "root", "");
         try {
             this.storage.init();
         } catch (Exception e) {

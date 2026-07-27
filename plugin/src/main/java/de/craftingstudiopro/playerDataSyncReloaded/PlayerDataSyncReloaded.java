@@ -19,10 +19,6 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
-import dev.faststats.bukkit.BukkitMetrics;
-import dev.faststats.core.Metrics;
-
-
 public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener {
 
     private VersionHandler versionHandler;
@@ -35,9 +31,6 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
     private de.craftingstudiopro.playerDataSyncReloaded.common.BackupManager backupManager;
     private PlayerDataSyncAPI api;
     private BukkitTask autoSaveTask;
-    private final Metrics metrics = BukkitMetrics.factory()
-            .token("744d645fca7c2275b2986db7cd58da0c")
-            .create(this);
 
 
     @Override
@@ -97,9 +90,6 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         // Run Update Checker
         new de.craftingstudiopro.playerDataSyncReloaded.plugin.util.UpdateChecker(this).check();
 
-        metrics.ready();
-
-
         startAutoSaveTask();
 
         getLogger().info("PlayerDataSyncReloaded version " + getDescription().getVersion() + " enabled.");
@@ -111,24 +101,7 @@ public final class PlayerDataSyncReloaded extends JavaPlugin implements Listener
         getLogger().info("Detected Bukkit Version: " + bukkitVersion);
 
         try {
-            if (bukkitVersion.contains("1.21.4") || bukkitVersion.contains("26.1.1") || bukkitVersion.contains("26.1.2")) {
-                this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v26_1.VersionHandlerImpl();
-            } else if (bukkitVersion.contains("1.21.1") || bukkitVersion.startsWith("1.21")) {
-                this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v1_21_R1.VersionHandlerImpl();
-            } else if (bukkitVersion.startsWith("1.20")) {
-                // Actually, v1_20_R1 might not be implemented yet or has a different name
-                // For now we'll assume a standard naming or fallback to 1.21
-                try {
-                    this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v1_20_R1.VersionHandlerImpl();
-                } catch (NoClassDefFoundError e) {
-                    this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v1_21_R1.VersionHandlerImpl();
-                    getLogger().warning("1.20 implementation not found, falling back to 1.21 handler.");
-                }
-            } else {
-                // Default to 1.21 handler as it's the most stable modern version
-                this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v1_21_R1.VersionHandlerImpl();
-                getLogger().warning("Unsupported Bukkit version! Using 1.21 fallback. Might have issues.");
-            }
+            this.versionHandler = new de.craftingstudiopro.playerDataSyncReloaded.v26_1.VersionHandlerImpl();
             return true;
         } catch (NoClassDefFoundError | Exception e) {
             getLogger().log(java.util.logging.Level.SEVERE, "Version handler setup failed. This is likely due to missing version-specific code in the jar.", e);
